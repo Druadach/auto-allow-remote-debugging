@@ -8,6 +8,63 @@ English | [简体中文](README.zh-CN.md)
 
 > A background watcher that auto-clicks Edge / Chrome's native **"Allow remote debugging?"** consent dialog, so CDP automation tools (pi-browser-harness, Playwright connect-over-CDP, Puppeteer, etc.) can reconnect without getting stuck on the prompt.
 
+## Quick start
+
+### Run manually
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\auto-allow-remote-debugging.ps1
+```
+
+Dialogs get auto-clicked within seconds. Log: `%TEMP%\pi-auto-allow.log`.
+
+### Autostart at logon (Task Scheduler)
+
+**Recommended — one-command installer.** The task path is derived from `$PSScriptRoot`
+(the folder containing `register-task.ps1`), so there is no placeholder path to edit —
+see the warning below for why that matters:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\register-task.ps1             # register + start now
+powershell -ExecutionPolicy Bypass -File .\register-task.ps1 -Unregister # remove the task
+```
+
+Manage it:
+
+```powershell
+Get-ScheduledTask  -TaskName 'pi-auto-allow-remote-debugging'   # status
+Start-ScheduledTask  -TaskName 'pi-auto-allow-remote-debugging' # start
+Stop-ScheduledTask   -TaskName 'pi-auto-allow-remote-debugging' # stop
+Unregister-ScheduledTask -TaskName 'pi-auto-allow-remote-debugging' -Confirm:$false  # remove
+```
+
+> ⚠️ **Fix the path before copying the manual snippet below.** It contains the
+> placeholder `C:\path\to\...`. A task whose action points at a non-existent script
+> exits the moment it starts with task result `0xFFFD0000` (PowerShell's
+> "the -File argument does not exist") and silently never runs — exactly why
+> `register-task.ps1` exists.
+
+Manual registration as the current user (no admin required) — **edit the path**:
+
+```powershell
+$script   = 'C:\path\to\auto-allow-remote-debugging.ps1'  # <- EDIT THIS
+$action   = New-ScheduledTaskAction -Execute 'powershell.exe' `
+            -Argument ('-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + $script + '"')
+$trigger  = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
+$settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
+            -Hidden -ExecutionTimeLimit ([TimeSpan]::Zero) -StartWhenAvailable
+Register-ScheduledTask -TaskName 'pi-auto-allow-remote-debugging' `
+  -Action $action -Trigger $trigger -Settings $settings -Force
+```
+
+### Verify it works
+
+```bash
+node test/probe.mjs
+```
+
+The probe opens a fresh CDP connection to the DevTools port (auto-discovered from the `DevToolsActivePort` file), which triggers the dialog. If the watcher is working you'll see `✓ SUCCESS` within seconds; a 20s timeout means the dialog wasn't clicked.
+
 ## Background
 
 Chromium browsers (verified on Edge 151) pop the native consent dialog for **every new external CDP connection** — it is not a one-time grant. While unauthorized:
@@ -50,48 +107,6 @@ The only workable automation layer is **OS-level UI Automation (UIA)** — which
 > ⚠️ v1's full-tree walks force Chromium to build/marshal complete accessibility trees for every open tab — browser-side CPU spiked to 47%. **Never poll Chromium windows with full-tree UIA queries**; this is the biggest measured lesson in this repo.
 >
 > Also: on Windows PowerShell 5.1, UIA event callbacks (scriptblocks invoked from threadpool threads) proved unreliable in testing — clicks were actually caught by the fallback sweep. v3 therefore keeps a 10s sweep as the primary catch path.
-
-## Quick start
-
-### Run manually
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\auto-allow-remote-debugging.ps1
-```
-
-Dialogs get auto-clicked within seconds. Log: `%TEMP%\pi-auto-allow.log`.
-
-### Autostart at logon (Task Scheduler)
-
-Register as the current user (no admin required):
-
-```powershell
-$action   = New-ScheduledTaskAction -Execute 'powershell.exe' `
-            -Argument '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "C:\path\to\auto-allow-remote-debugging.ps1"'
-$trigger  = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
-$settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
-            -Hidden -ExecutionTimeLimit ([TimeSpan]::Zero) -StartWhenAvailable
-Register-ScheduledTask -TaskName 'auto-allow-remote-debugging' `
-  -Action $action -Trigger $trigger -Settings $settings -Force
-```
-
-Manage it:
-
-```powershell
-Get-ScheduledTask  -TaskName 'auto-allow-remote-debugging'   # status
-Start-ScheduledTask  -TaskName 'auto-allow-remote-debugging' # start
-Stop-ScheduledTask   -TaskName 'auto-allow-remote-debugging' # stop
-Unregister-ScheduledTask -TaskName 'auto-allow-remote-debugging' -Confirm:$false  # remove
-```
-
-### Verify it works
-
-```bash
-node test/probe.mjs
-```
-
-The probe opens a fresh CDP connection to the DevTools port (auto-discovered from the `DevToolsActivePort` file), which triggers the dialog. If the watcher is working you'll see `✓ SUCCESS` within seconds; a 20s timeout means the dialog wasn't clicked.
-
 ## Known pitfalls (Windows PowerShell 5.1)
 
 1. **.ps1 files with non-ASCII characters must be UTF-8 with BOM**, otherwise PS 5.1 misreads them as ANSI/GBK and produces phantom parse errors (this repo's script ships with BOM).

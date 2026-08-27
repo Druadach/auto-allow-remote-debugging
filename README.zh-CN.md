@@ -8,6 +8,61 @@
 
 > 后台守护脚本：自动点击 Edge / Chrome 的 **"Allow remote debugging?"** 授权弹窗，让 CDP 自动化工具（pi-browser-harness、Playwright connect over CDP、Puppeteer 等）重连时不再被弹窗卡住。
 
+## 快速开始
+
+### 手动运行
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\auto-allow-remote-debugging.ps1
+```
+
+弹窗出现后几秒内会被自动点掉。日志写在 `%TEMP%\pi-auto-allow.log`。
+
+### 开机自启（任务计划程序）
+
+**推荐：一行安装。** 任务路径由 `$PSScriptRoot`（`register-task.ps1` 所在目录）自动拼接，
+无需手改占位符 —— 原因见下方警告：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\register-task.ps1              # 注册并立即启动
+powershell -ExecutionPolicy Bypass -File .\register-task.ps1 -Unregister  # 卸载任务
+```
+
+管理：
+
+```powershell
+Get-ScheduledTask  -TaskName 'pi-auto-allow-remote-debugging'   # 查状态
+Start-ScheduledTask  -TaskName 'pi-auto-allow-remote-debugging' # 启动
+Stop-ScheduledTask   -TaskName 'pi-auto-allow-remote-debugging' # 停止
+Unregister-ScheduledTask -TaskName 'pi-auto-allow-remote-debugging' -Confirm:$false  # 卸载
+```
+
+> ⚠️ **手工抄下面这段之前，务必把路径改掉。** 示例里的 `C:\path\to\...` 是占位符。
+> 任务指向不存在的脚本时，一启动就会以结果码 `0xFFFD0000`（PowerShell 的
+> "`-File` 参数不存在"）退出，任务看似注册成功、实则从未运行 —— 这正是
+> `register-task.ps1` 存在的原因。
+
+以当前用户身份手工注册（无需管理员）—— **请先修改路径**：
+
+```powershell
+$script   = 'C:\path\to\auto-allow-remote-debugging.ps1'  # ← 改成你的真实路径
+$action   = New-ScheduledTaskAction -Execute 'powershell.exe' `
+            -Argument ('-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + $script + '"')
+$trigger  = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
+$settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
+            -Hidden -ExecutionTimeLimit ([TimeSpan]::Zero) -StartWhenAvailable
+Register-ScheduledTask -TaskName 'pi-auto-allow-remote-debugging' `
+  -Action $action -Trigger $trigger -Settings $settings -Force
+```
+
+### 验证是否生效
+
+```bash
+node test/probe.mjs
+```
+
+探针会向 DevTools 端口发起新的 CDP 连接（自动读取 `DevToolsActivePort` 文件），触发弹窗。若 watcher 正常工作，几秒内打印 `✓ SUCCESS`；若 20s 超时说明弹窗没被点掉。
+
 ## 背景
 
 Chromium 系浏览器（实测 Edge 151）对**每一条新的外部 CDP 连接**都会弹原生授权框 —— 不是授权一次终身有效。未授权时：
@@ -47,48 +102,6 @@ Chromium 系浏览器（实测 Edge 151）对**每一条新的外部 CDP 连接*
 > ⚠️ v1 的全树遍历会强迫 Chromium 为所有标签页维护完整无障碍树，浏览器侧 CPU 飙到 47% —— **不要对 Chromium 窗口做全树 UIA 轮询**，这是本仓库最大的实测教训。
 >
 > 另：PS 5.1 下 UIA 事件回调（脚本块从线程池线程投递）实测不可靠，点击实际都是兜底扫描逮到的。所以 v3 保留了 10s 兜底扫描作为主要捕获路径。
-
-## 快速开始
-
-### 手动运行
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\auto-allow-remote-debugging.ps1
-```
-
-弹窗出现后几秒内会被自动点掉。日志写在 `%TEMP%\pi-auto-allow.log`。
-
-### 开机自启（任务计划程序）
-
-以当前用户身份注册（无需管理员）：
-
-```powershell
-$action   = New-ScheduledTaskAction -Execute 'powershell.exe' `
-            -Argument '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "C:\path\to\auto-allow-remote-debugging.ps1"'
-$trigger  = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
-$settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
-            -Hidden -ExecutionTimeLimit ([TimeSpan]::Zero) -StartWhenAvailable
-Register-ScheduledTask -TaskName 'auto-allow-remote-debugging' `
-  -Action $action -Trigger $trigger -Settings $settings -Force
-```
-
-管理：
-
-```powershell
-Get-ScheduledTask  -TaskName 'auto-allow-remote-debugging'   # 查状态
-Start-ScheduledTask  -TaskName 'auto-allow-remote-debugging' # 启动
-Stop-ScheduledTask   -TaskName 'auto-allow-remote-debugging' # 停止
-Unregister-ScheduledTask -TaskName 'auto-allow-remote-debugging' -Confirm:$false  # 卸载
-```
-
-### 验证是否生效
-
-```bash
-node test/probe.mjs
-```
-
-探针会向 DevTools 端口发起新的 CDP 连接（自动读取 `DevToolsActivePort` 文件），触发弹窗。若 watcher 正常工作，几秒内打印 `✓ SUCCESS`；若 20s 超时说明弹窗没被点掉。
-
 ## 已知坑（Windows PowerShell 5.1）
 
 1. **含非 ASCII 字符的 .ps1 必须是 UTF-8 with BOM**，否则按 GBK 误读产生幻影解析错误（本仓库文件已带 BOM）。
