@@ -111,6 +111,7 @@ Chromium 系浏览器（实测 Edge 151）对**每一条新的外部 CDP 连接*
 3. 结构变化事件必须用 `AddStructureChangedEventHandler`（`AddAutomationEventHandler` 传 `StructureChangedEvent` 会报 "eventId not valid"）。
 4. 按命令行模式查/杀进程时，**查询进程自身会被匹配**（`-Command` 字符串里含模式文本），务必排除 `$PID`。
 5. **Win10→Win11 升级后的"静止死亡"**：`New-ScheduledTaskSettingsSet` 默认 `IdleSettings.StopOnIdleEnd=true`，机器进入空闲（约 10 分钟无输入）即终止任务；watcher 被杀后，登录触发器要等**下次登录**才会拉起 —— 期间弹窗无人点，现象与"升级后脚本失效"一模一样。`register-task.ps1` 已显式关闭该开关，并加 30 分钟心跳触发器 + 失败自动重启兜底；升级系统后重新执行一次 `register-task.ps1` 即可。另注意：心跳的 `RepetitionDuration` 不能用 `[TimeSpan]::MaxValue`（序列化成 P99999999DT23H59M59S 超范围导致注册失败），要用有限的足够长时长。
+6. **Win11 默认终端是 Windows Terminal，会无视 `-WindowStyle Hidden`**：计划任务每次拉起 watcher 都会在 WT 里弹出可见控制台窗口，心跳触发时还会反复弹。`register-task.ps1` 已改用 `conhost.exe --headless powershell.exe ...` 包装启动 —— 强制用无头 conhost 托管控制台，绕过 WT 的 console handoff，窗口完全不出现；默认终端仍为传统 conhost 的系统（如 Win10）不受影响。
 
 ## 替代方案对比
 

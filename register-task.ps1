@@ -32,8 +32,12 @@ if (-not (Test-Path $self)) {
     exit 1
 }
 
-$action = New-ScheduledTaskAction -Execute 'powershell.exe' `
-    -Argument ('-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + $self + '"')
+# 关键：必须用 conhost.exe --headless 包装 —— Win11 默认终端是 Windows Terminal，
+# 它会无视 -WindowStyle Hidden：任务每次拉起 watcher 都会在 WT 里弹出可见窗口
+# （心跳每 30 分钟弹一次）。--headless 强制 conhost 无头托管控制台，绕过 WT handoff。
+# 保留 -WindowStyle Hidden 是给默认终端仍为传统 conhost 的系统（如 Win10）双保险。
+$action = New-ScheduledTaskAction -Execute 'conhost.exe' `
+    -Argument ('--headless powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + $self + '"')
 $trigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
 # 心跳兜底：每 30 分钟重复触发一次（实例已在跑时被 IgnoreNew + 脚本内互斥锁挡下，无副作用）。
 # 实测 Win11 24H2 下 watcher 进程可能意外终止，而登录触发器要等下次登录才会再拉起 ——
