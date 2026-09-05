@@ -8,6 +8,8 @@ English | [简体中文](README.zh-CN.md)
 
 > A background watcher that auto-clicks Edge / Chrome's native **"Allow remote debugging?"** consent dialog, so CDP automation tools (pi-browser-harness, Playwright connect-over-CDP, Puppeteer, etc.) can reconnect without getting stuck on the prompt.
 
+> This project's development was supported by and is acknowledged in the [LINUX DO community](https://linux.do).
+
 ## Quick start
 
 ### Run manually
@@ -107,12 +109,13 @@ The only workable automation layer is **OS-level UI Automation (UIA)** — which
 > ⚠️ v1's full-tree walks force Chromium to build/marshal complete accessibility trees for every open tab — browser-side CPU spiked to 47%. **Never poll Chromium windows with full-tree UIA queries**; this is the biggest measured lesson in this repo.
 >
 > Also: on Windows PowerShell 5.1, UIA event callbacks (scriptblocks invoked from threadpool threads) proved unreliable in testing — clicks were actually caught by the fallback sweep. v3 therefore keeps a 10s sweep as the primary catch path.
-## Known pitfalls (Windows PowerShell 5.1)
+## Known pitfalls (Windows PowerShell 5.1 / Win11)
 
 1. **.ps1 files with non-ASCII characters must be UTF-8 with BOM**, otherwise PS 5.1 misreads them as ANSI/GBK and produces phantom parse errors (this repo's script ships with BOM).
 2. Multi-level nested `New-Object X(...)` parentheses fail with `Unexpected token ')'` — flatten into separate variables.
 3. Structure-changed events require `AddStructureChangedEventHandler` (`AddAutomationEventHandler` with `StructureChangedEvent` throws "eventId not valid").
 4. When querying/killing processes by command-line pattern, **the querying process matches itself** (its `-Command` string contains the pattern) — always exclude `$PID`.
+5. **Silent death after Win10→Win11 upgrade**: `New-ScheduledTaskSettingsSet` defaults to `IdleSettings.StopOnIdleEnd=true` — the task gets terminated once the machine goes idle (~10 min without input). Once the watcher dies, the logon trigger won't fire again until the **next logon**, so popups go unanswered — looks exactly like "the script broke after the upgrade". `register-task.ps1` now disables that switch explicitly and adds a 30-min heartbeat trigger + restart-on-failure as a safety net; after an OS upgrade, just re-run `register-task.ps1` once. Also note: the heartbeat's `RepetitionDuration` must not be `[TimeSpan]::MaxValue` (it serializes to P99999999DT23H59M59S, which the Task Scheduler rejects as out of range) — use a finite, long-enough duration instead.
 
 ## Alternatives compared
 

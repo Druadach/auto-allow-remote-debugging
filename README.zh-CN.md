@@ -8,6 +8,8 @@
 
 > 后台守护脚本：自动点击 Edge / Chrome 的 **"Allow remote debugging?"** 授权弹窗，让 CDP 自动化工具（pi-browser-harness、Playwright connect over CDP、Puppeteer 等）重连时不再被弹窗卡住。
 
+> 本项目的开发得到 [LINUX DO 社区](https://linux.do) 的支持与认可。
+
 ## 快速开始
 
 ### 手动运行
@@ -102,12 +104,13 @@ Chromium 系浏览器（实测 Edge 151）对**每一条新的外部 CDP 连接*
 > ⚠️ v1 的全树遍历会强迫 Chromium 为所有标签页维护完整无障碍树，浏览器侧 CPU 飙到 47% —— **不要对 Chromium 窗口做全树 UIA 轮询**，这是本仓库最大的实测教训。
 >
 > 另：PS 5.1 下 UIA 事件回调（脚本块从线程池线程投递）实测不可靠，点击实际都是兜底扫描逮到的。所以 v3 保留了 10s 兜底扫描作为主要捕获路径。
-## 已知坑（Windows PowerShell 5.1）
+## 已知坑（Windows PowerShell 5.1 / Win11）
 
 1. **含非 ASCII 字符的 .ps1 必须是 UTF-8 with BOM**，否则按 GBK 误读产生幻影解析错误（本仓库文件已带 BOM）。
 2. `New-Object X(...)` 多层嵌套括号参数会报 `Unexpected token ')'`，拍平成独立变量即可。
 3. 结构变化事件必须用 `AddStructureChangedEventHandler`（`AddAutomationEventHandler` 传 `StructureChangedEvent` 会报 "eventId not valid"）。
 4. 按命令行模式查/杀进程时，**查询进程自身会被匹配**（`-Command` 字符串里含模式文本），务必排除 `$PID`。
+5. **Win10→Win11 升级后的"静止死亡"**：`New-ScheduledTaskSettingsSet` 默认 `IdleSettings.StopOnIdleEnd=true`，机器进入空闲（约 10 分钟无输入）即终止任务；watcher 被杀后，登录触发器要等**下次登录**才会拉起 —— 期间弹窗无人点，现象与"升级后脚本失效"一模一样。`register-task.ps1` 已显式关闭该开关，并加 30 分钟心跳触发器 + 失败自动重启兜底；升级系统后重新执行一次 `register-task.ps1` 即可。另注意：心跳的 `RepetitionDuration` 不能用 `[TimeSpan]::MaxValue`（序列化成 P99999999DT23H59M59S 超范围导致注册失败），要用有限的足够长时长。
 
 ## 替代方案对比
 
